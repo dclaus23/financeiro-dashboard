@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+  <title>OsClauss · Financeiro</title>
+  <link rel="stylesheet" href="assets/css/style.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+</head>
+<body>
+
+<!-- ── MODAL DE LOGIN ─────────────────────────────────────────────────────── -->
+<div id="loginModal" style="
+  position:fixed;inset:0;background:rgba(0,32,96,.85);
+  display:flex;align-items:center;justify-content:center;z-index:999
+">
+  <div style="
+    background:#fff;border-radius:16px;padding:36px 32px;width:100%;max-width:380px;
+    box-shadow:0 20px 60px rgba(0,0,0,.3)
+  ">
+    <div style="text-align:center;margin-bottom:28px">
+      <div style="font-size:40px;margin-bottom:8px">💰</div>
+      <h2 style="font-size:20px;font-weight:800;color:#002060">OsClauss Financeiro</h2>
+      <p style="font-size:13px;color:#8A96A8;margin-top:4px">Acesse com seu email e senha</p>
+    </div>
+    <form id="loginForm">
+      <div style="margin-bottom:14px">
+        <label style="font-size:11px;font-weight:700;color:#4A5568;text-transform:uppercase;letter-spacing:.5px">Email</label>
+        <input id="loginEmail" type="email" required autocomplete="email"
+          placeholder="seu@email.com"
+          style="width:100%;margin-top:5px;padding:10px 12px;border:1.5px solid #DDE3EE;border-radius:8px;font-size:14px;outline:none"
+          onfocus="this.style.borderColor='#002060'" onblur="this.style.borderColor='#DDE3EE'">
+      </div>
+      <div style="margin-bottom:20px">
+        <label style="font-size:11px;font-weight:700;color:#4A5568;text-transform:uppercase;letter-spacing:.5px">Senha</label>
+        <input id="loginPass" type="password" required autocomplete="current-password"
+          placeholder="••••••••"
+          style="width:100%;margin-top:5px;padding:10px 12px;border:1.5px solid #DDE3EE;border-radius:8px;font-size:14px;outline:none"
+          onfocus="this.style.borderColor='#002060'" onblur="this.style.borderColor='#DDE3EE'">
+      </div>
+      <p id="loginError" style="color:#C00000;font-size:12px;margin-bottom:12px;display:none"></p>
+      <button id="loginBtn" type="submit"
+        style="width:100%;padding:12px;background:#002060;color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer">
+        Entrar
+      </button>
+    </form>
+  </div>
+</div>
+
+<!-- ── APP SHELL ─────────────────────────────────────────────────────────── -->
+<div id="appShell" style="display:none">
+
+  <!-- Header -->
+  <header class="hd">
+    <div class="hd-brand">
+      <div class="hd-ico">💰</div>
+      <div>
+        <div class="hd-name">OsClauss</div>
+        <div class="hd-sub">Controle financeiro</div>
+      </div>
+    </div>
+    <div class="hd-right">
+      <div class="status-pill">
+        <div class="dot spin" id="statusDot"></div>
+        <span class="dot-txt" id="statusTxt">Iniciando...</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Pages nav -->
+  <nav class="pages">
+    <button class="pg active" onclick="setPage('p1',this)">
+      📋 Gastos & Salários
+    </button>
+    <button class="pg" onclick="setPage('p2',this)">
+      💳 Cartões
+    </button>
+    <button class="pg" onclick="setPage('p3',this)">
+      📈 Carteira & Aportes
+    </button>
+  </nav>
+
+  <!-- Period bar -->
+  <div class="pbar">
+    <span class="plbl">Período:</span>
+    <div id="periodBtns" style="display:flex;gap:6px;flex-wrap:wrap"></div>
+    <span class="pbar-right" id="pbarRight"></span>
+  </div>
+
+  <!-- Pages content -->
+  <main class="main">
+    <div id="p1" class="page-content"></div>
+    <div id="p2" class="page-content" style="display:none"></div>
+    <div id="p3" class="page-content" style="display:none"></div>
+  </main>
+
+</div>
+
+<!-- Scripts (ES modules) -->
+<script type="module" src="assets/js/app.js"></script>
+
+</body>
+</html>
