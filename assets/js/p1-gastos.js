@@ -1,13 +1,21 @@
 import { sb, getPeriodoAnterior, getMesmoMesAnoPassado } from './supabase-client.js';
-import { fmt, fmtK, num, mesNome, PAL, mkC, kpiHTML, renderTable, catIcon, doughnutOpts, barOpts } from './utils.js';
+import { fmt, fmtK, num, mesNome, PAL, mkC, kpiHTML, renderTable, catIcon, doughnutOpts, barOpts, legendHTML } from './utils.js';
+
+// Cores fixas pedidas: gastos sempre em vermelho clarinho, receita sempre em
+// verde militar — independente de ser mês anterior/atual/ano passado.
+const COR_GASTO   = '#EF9A9A';
+const COR_RECEITA = '#375623';
 
 let _periodo = null;
 let _filtroCategoria = null;
-let _subTab = 'fixos';
+let _sortCol = null;
+let _sortDir = 'asc';
+let _gastosAtual = [];
 
 export async function render(periodo) {
   _periodo = periodo;
   _filtroCategoria = null;
+  _sortCol = null;
   await _renderAll();
 }
 
@@ -30,6 +38,8 @@ async function _renderAll() {
   const [gastosY, salariosY] = yagoAnoMes
     ? await Promise.all([_queryGastos(yagoAnoMes), _querySalarios(yagoAnoMes)])
     : [[], []];
+
+  _gastosAtual = gastos;
 
   const gastosFiltrados = _filtroCategoria
     ? gastos.filter(r => r.categoria === _filtroCategoria)
@@ -95,11 +105,13 @@ async function _renderAll() {
         <h3>Por categoria <span style="font-size:10px;color:var(--t3)">(clique para filtrar)</span></h3>
         <div class="csub">Valor total no período</div>
         <div class="ch"><canvas id="chCat1"></canvas></div>
+        <div class="chip-legend" id="legCat1"></div>
       </div>
       <div class="cc">
         <h3>Pago vs. A pagar</h3>
         <div class="csub">Status dos lançamentos</div>
         <div class="ch"><canvas id="chStatus1"></canvas></div>
+        <div class="chip-legend" id="legStatus1"></div>
       </div>
     </div>
   </div>
@@ -127,12 +139,7 @@ async function _renderAll() {
     <div class="sec-title">Lançamentos</div>
     <div class="tcard">
       <div class="tbar">
-        <h3 id="p1TabTitle">Gastos fixos</h3>
-        <div class="stab-wrap">
-          <button class="stab active" onclick="window._p1SetTab('fixos',this)">Fixos</button>
-          <button class="stab" onclick="window._p1SetTab('todos',this)">Todos</button>
-          <button class="stab" onclick="window._p1SetTab('sal',this)">Salários</button>
-        </div>
+        <h3>Todos os gastos <span style="font-size:10px;font-weight:500;color:var(--t3)">(clique numa linha para filtrar por categoria)</span></h3>
         <input class="srch" id="srch1" type="text" placeholder="Buscar..." oninput="window._p1Search()">
       </div>
       <div class="tw"><table><thead id="th1"></thead><tbody id="tb1"></tbody></table></div>
@@ -156,7 +163,7 @@ async function _renderAll() {
       </div>
     </div>`).join('') || '<p style="color:var(--t3);padding:12px">Nenhum gasto fixo no período</p>';
 
-  // Gráfico categorias (clicável)
+  // Gráfico categorias (clicável) + legenda com valor e %
   const cm = {};
   gastosFiltrados.forEach(r => { const k = r.categoria || 'Outros'; cm[k] = (cm[k] || 0) + num(r.valor); });
   const cs = Object.entries(cm).sort((a,b) => b[1]-a[1]).slice(0,8);
@@ -165,41 +172,42 @@ async function _renderAll() {
     type: 'doughnut',
     data: { labels: cs.map(x=>x[0]), datasets: [{ data: cs.map(x=>Math.round(x[1])), backgroundColor: PAL, borderWidth: 2, borderColor: '#fff' }] },
     options: {
-      ...doughnutOpts(totalG),
+      ...doughnutOpts(totalG, { legend:false }),
       onClick: (e, els) => {
         if (els.length) { _filtroCategoria = cs[els[0].index][0]; _renderAll(); }
       },
     },
   });
+  document.getElementById('legCat1').innerHTML = legendHTML(
+    cs.map(([label,value],i) => ({ label, value, color: PAL[i % PAL.length] })), totalG,
+  );
 
-  // Gráfico status
+  // Gráfico status + legenda
   mkC('chStatus1', {
     type: 'doughnut',
     data: { labels: ['Pago','A pagar'], datasets: [{ data: [Math.round(pagos), Math.round(aberto)], backgroundColor: ['#375623','#C00000'], borderWidth: 2, borderColor: '#fff' }] },
-    options: doughnutOpts(totalG),
+    options: doughnutOpts(totalG, { legend:false }),
   });
+  document.getElementById('legStatus1').innerHTML = legendHTML([
+    { label:'Pago',    value:pagos,  color:'#375623' },
+    { label:'A pagar', value:aberto, color:'#C00000' },
+  ], totalG);
 
-  // Comparativos
+  // Comparativos (cor única por gráfico)
   if (prevAnoMes || yagoAnoMes) {
     const labels = [pLabel, mesNome(_periodo), yLabel].filter(Boolean);
     const valsG  = [prevTG, totalG, yagoTG].filter((_,i) => [prevAnoMes, _periodo, yagoAnoMes][i]);
     const valsS  = [prevTS, totalS, yagoTS].filter((_,i) => [prevAnoMes, _periodo, yagoAnoMes][i]);
-    const bgs    = ['#9DC3E6','#002060','#C9211E'];
-    const bgsG   = ['#A9D18E','#375623','#548235'];
 
     mkC('chCompG1', { type: 'bar',
-      data: { labels, datasets: [{ label:'Gastos', data: valsG.map(Math.round), backgroundColor: bgs.slice(0,valsG.length), borderRadius: 6, borderWidth: 0 }] },
+      data: { labels, datasets: [{ label:'Gastos', data: valsG.map(Math.round), backgroundColor: COR_GASTO, borderRadius: 6, borderWidth: 0 }] },
       options: barOpts() });
 
     mkC('chCompS1', { type: 'bar',
-      data: { labels, datasets: [{ label:'Receita', data: valsS.map(Math.round), backgroundColor: bgsG.slice(0,valsS.length), borderRadius: 6, borderWidth: 0 }] },
+      data: { labels, datasets: [{ label:'Receita', data: valsS.map(Math.round), backgroundColor: COR_RECEITA, borderRadius: 6, borderWidth: 0 }] },
       options: barOpts() });
   }
 
-  // Guardar referências para funções globais
-  window._gastos   = gastos;
-  window._salarios = salarios;
-  window._p1SetTab    = (tab, el) => { _subTab = tab; document.querySelectorAll('.stab').forEach(b=>b.classList.remove('active')); el.classList.add('active'); _renderTable(); };
   window._p1ClearFilter = () => { _filtroCategoria = null; _renderAll(); };
   window._p1Search  = () => _renderTable();
 
@@ -208,28 +216,36 @@ async function _renderAll() {
 
 function _renderTable() {
   const srch = (document.getElementById('srch1')?.value || '').toLowerCase();
-  let rows = [], cols = [];
+  const cols = ['ano_mes','categoria','descricao','responsavel','valor','pago','tipo_gasto'];
 
-  if (_subTab === 'fixos') {
-    rows = window._gastos.filter(r => r.tipo_gasto === 'Fixo');
-    cols = ['ano_mes','categoria','descricao','responsavel','valor','pago','tipo_gasto'];
-    document.getElementById('p1TabTitle').textContent = 'Gastos fixos';
-  } else if (_subTab === 'todos') {
-    rows = window._gastos;
-    cols = ['ano_mes','categoria','descricao','responsavel','valor','pago','tipo_gasto'];
-    document.getElementById('p1TabTitle').textContent = 'Todos os gastos';
-  } else {
-    rows = window._salarios;
-    cols = ['ano_mes','tipo_provento','descricao','responsavel','valor_bruto','valor_liquido','recebido'];
-    document.getElementById('p1TabTitle').textContent = 'Salários e proventos';
+  let rows = _filtroCategoria ? _gastosAtual.filter(r => r.categoria === _filtroCategoria) : _gastosAtual;
+  if (srch) rows = rows.filter(r => Object.values(r).some(v => v && String(v).toLowerCase().includes(srch)));
+
+  if (_sortCol) {
+    const dir = _sortDir === 'asc' ? 1 : -1;
+    rows = [...rows].sort((a,b) => _comparar(a, b, _sortCol) * dir);
   }
 
-  if (_filtroCategoria && _subTab !== 'sal')
-    rows = rows.filter(r => r.categoria === _filtroCategoria);
-  if (srch)
-    rows = rows.filter(r => Object.values(r).some(v => v && String(v).toLowerCase().includes(srch)));
+  renderTable('th1', 'tb1', cols, rows, {
+    sortable: true,
+    sortCol: _sortCol,
+    sortDir: _sortDir,
+    onSort: (col) => {
+      if (_sortCol === col) _sortDir = _sortDir === 'asc' ? 'desc' : 'asc';
+      else { _sortCol = col; _sortDir = 'asc'; }
+      _renderTable();
+    },
+    onRowClick: (row) => {
+      _filtroCategoria = _filtroCategoria === row.categoria ? null : (row.categoria || null);
+      _renderAll();
+    },
+    isRowActive: (row) => !!_filtroCategoria && row.categoria === _filtroCategoria,
+  });
+}
 
-  renderTable('th1', 'tb1', cols, rows);
+function _comparar(a, b, col) {
+  if (col === 'valor') return num(a[col]) - num(b[col]);
+  return String(a[col] ?? '').localeCompare(String(b[col] ?? ''), 'pt-BR');
 }
 
 // Queries

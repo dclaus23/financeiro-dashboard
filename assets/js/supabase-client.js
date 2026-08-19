@@ -1,8 +1,8 @@
 // ─── Configuração Supabase ────────────────────────────────────────────────────
 // ⚠️ Substitua pelos valores do SEU projeto Supabase
 // Acesse: https://supabase.com → seu projeto → Settings → API
-const SUPABASE_URL  = 'https://shxjmptwahpdqgouvnab.supabase.co';
-const SUPABASE_ANON = 'sb_publishable_Dsdqi97NuYz8aASUHA5Mag_895eXWjo';  // Anon key (pública)
+export const SUPABASE_URL  = 'https://shxjmptwahpdqgouvnab.supabase.co';
+export const SUPABASE_ANON = 'sb_publishable_Dsdqi97NuYz8aASUHA5Mag_895eXWjo';  // Anon key (pública)
 
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm';
 export const sb = createClient(SUPABASE_URL, SUPABASE_ANON);
@@ -38,7 +38,14 @@ export async function getPeriodos() {
     .select('ano_mes, ano, mes')
     .order('ano_mes');
   if (error) throw error;
-  return data || [];
+  // Um mesmo ano_mes pode ter mais de um arquivo processado (ex: financeiro
+  // e B3 carregados separadamente) — dedupe para não duplicar o período no filtro.
+  const vistos = new Set();
+  return (data || []).filter(r => {
+    if (vistos.has(r.ano_mes)) return false;
+    vistos.add(r.ano_mes);
+    return true;
+  });
 }
 
 export async function getPeriodoAnterior(anoMes) {

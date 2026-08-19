@@ -1,5 +1,5 @@
 import { sb, getPeriodos } from './supabase-client.js';
-import { mesNome, killCharts } from './utils.js';
+import { mesNome, killCharts, isHidden, setHideValues } from './utils.js';
 import { render as renderP1 } from './p1-gastos.js';
 import { render as renderP2 } from './p2-cartoes.js';
 import { render as renderP3 } from './p3-carteira.js';
@@ -12,6 +12,7 @@ let _user      = null;
 // ─── Boot ─────────────────────────────────────────────────────────────────────
 async function boot() {
   setDot('spin', 'Verificando sessão...');
+  atualizarBotaoOlho();
 
   // Autenticação
   const { data: { session } } = await sb.auth.getSession();
@@ -70,18 +71,18 @@ document.getElementById('loginForm')?.addEventListener('submit', async e => {
   }
 });
 
-// ─── Barra de períodos ────────────────────────────────────────────────────────
+// ─── Barra de períodos (select) ────────────────────────────────────────────────
 function buildPeriodBar() {
   const el = document.getElementById('periodBtns');
   const maisRecente = _periodos[_periodos.length - 1];
 
   el.innerHTML = `
-    <button class="pfbtn ${_periodo==='todos'?'active':''}" onclick="window.setPeriodo('todos')">Todos</button>
-    ${_periodos.map(p => `
-      <button class="pfbtn ${_periodo===p.ano_mes?'active':''}" onclick="window.setPeriodo('${p.ano_mes}')">
-        ${mesNome(p.ano_mes)} ${p.ano}
-      </button>
-    `).join('')}`;
+    <select class="pfsel" id="periodSelect" onchange="window.setPeriodo(this.value)">
+      <option value="todos" ${_periodo==='todos'?'selected':''}>Todos os períodos</option>
+      ${_periodos.map(p => `
+        <option value="${p.ano_mes}" ${_periodo===p.ano_mes?'selected':''}>${mesNome(p.ano_mes)} ${p.ano}</option>
+      `).join('')}
+    </select>`;
 
   document.getElementById('pbarRight').textContent =
     `${_periodos.length} mês(es) · último: ${mesNome(maisRecente.ano_mes)} ${maisRecente.ano}`;
@@ -89,7 +90,6 @@ function buildPeriodBar() {
 
 window.setPeriodo = async (p) => {
   _periodo = p;
-  buildPeriodBar();
   killCharts();
   await renderPage();
 };
@@ -118,6 +118,22 @@ async function renderPage() {
     console.error(err);
   }
 }
+
+// ─── Modo privacidade (ocultar valores) ────────────────────────────────────────
+function atualizarBotaoOlho() {
+  const btn = document.getElementById('btnEye');
+  if (!btn) return;
+  btn.textContent = isHidden() ? '🙈' : '👁';
+  btn.title = isHidden() ? 'Mostrar valores' : 'Ocultar valores (em toda a tela)';
+  btn.classList.toggle('on', isHidden());
+}
+
+window.toggleHideValues = async () => {
+  setHideValues(!isHidden());
+  atualizarBotaoOlho();
+  killCharts();
+  await renderPage();
+};
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 function setDot(s, t) {
