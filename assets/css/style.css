@@ -310,3 +310,10 @@ tr.row-active td { background: var(--bbg) !important; }
   .k-val { font-size: 16px; }
   .pbar-right { display: none; }
 }
+
+/* ── Tabela comparativa por categoria (p1) ── */
+table.cat-comp tfoot td {
+  position: sticky; bottom: 0; background: var(--surf);
+  font-weight: 800; border-top: 2px solid var(--brd); border-bottom: none;
+}
+.kpi-saldo { border: 1.5px solid var(--acc); }
