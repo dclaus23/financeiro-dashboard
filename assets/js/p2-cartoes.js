@@ -1,4 +1,4 @@
-import { sb, getPeriodoAnterior, getMesmoMesAnoPassado } from './supabase-client.js';
+import { sb, selectTodos } from './supabase-client.js';
 import { fmt, fmtK, num, mesNome, PAL, mkC, kpiHTML, renderTable, doughnutOpts, barOpts, catIcon } from './utils.js';
 
 const COR_COMPARATIVO = '#002060'; // azul marinho único, pedido para o gráfico de comparativo
@@ -6,14 +6,14 @@ const COR_PAGO         = '#375623';
 const COR_PROJETADO    = '#E0A100';
 const N_MESES_PROJECAO = 4;
 
-let _periodo = null;
+let _sel = null;
 let _filtroCartao = null;
 let _sortCol = null;
 let _sortDir = 'asc';
 let _cartoesAtual = [];
 
-export async function render(periodo) {
-  _periodo = periodo;
+export async function render(sel) {
+  _sel = sel;
   _filtroCartao = null;
   _sortCol = null;
   await _renderAll();
@@ -23,11 +23,13 @@ async function _renderAll() {
   const el = document.getElementById('p2');
   el.innerHTML = `<div style="padding:40px;text-align:center"><div class="spinner"></div></div>`;
 
-  const cartoes = await _query(_periodo);
-  const prevAnoMes = await getPeriodoAnterior(_periodo);
-  const yagoAnoMes = await getMesmoMesAnoPassado(_periodo);
-  const cartoesP = prevAnoMes ? await _query(prevAnoMes) : [];
-  const cartoesY = yagoAnoMes ? await _query(yagoAnoMes) : [];
+  const sel = _sel;
+  const [cartoes, cartoesP, cartoesY] = await Promise.all([
+    _query(sel.meses), _query(sel.prev?.meses), _query(sel.yago?.meses),
+  ]);
+  const prevAnoMes = sel.prev ? true : null;   // só usados como "tem comparação?"
+  const yagoAnoMes = sel.yago ? true : null;
+  const ehAno = sel.modo === 'ano';
 
   const c  = _filtroCartao ? cartoes.filter(r => r.cartao === _filtroCartao) : cartoes;
   const cP = _filtroCartao ? cartoesP.filter(r => r.cartao === _filtroCartao) : cartoesP;
@@ -36,17 +38,21 @@ async function _renderAll() {
   const total   = c.reduce((a,r) => a + num(r.valor_parcela), 0);
   const pagos   = c.filter(r => r.pago==='SIM').reduce((a,r) => a + num(r.valor_parcela), 0);
   const aberto  = total - pagos;
-  const futura  = c.filter(r => num(r.restam) > 0).reduce((a,r) => a + num(r.valor_parcela)*num(r.restam), 0);
+  const futura  = c.filter(r => r.ano_mes === _sel.ultimo && num(r.restam) > 0).reduce((a,r) => a + num(r.valor_parcela)*num(r.restam), 0);
   const prevT   = cartoesP.reduce((a,r) => a + num(r.valor_parcela), 0);
   const yagoT   = cartoesY.reduce((a,r) => a + num(r.valor_parcela), 0);
-  const pLabel  = prevAnoMes ? mesNome(prevAnoMes) : '';
-  const yLabel  = yagoAnoMes ? mesNome(yagoAnoMes)+'/'+yagoAnoMes?.split('-')[0] : '';
+  const pLabel  = sel.prev?.label || '';
+  const yLabel  = sel.yago?.label || '';
 
   // ── Projeção de gastos futuros (parcelas que ainda vão aparecer nas próximas faturas) ──
+  // Sempre a partir do último mês do período (no ano inteiro = último mês carregado).
+  const cUlt      = c.filter(r => r.ano_mes === sel.ultimo);
+  const pagosUlt  = cUlt.filter(r => r.pago==='SIM').reduce((a,r) => a + num(r.valor_parcela), 0);
+  const lblUlt    = ehAno ? `pago em ${mesNome(sel.ultimo).slice(0,3)}` : 'pago este mês';
   const projecoes = [];
   for (let n = 1; n <= N_MESES_PROJECAO; n++) {
-    const valor = c.filter(r => num(r.restam) >= n).reduce((a,r) => a + num(r.valor_parcela), 0);
-    projecoes.push({ ...(_mesFuturo(_periodo, n)), valor });
+    const valor = cUlt.filter(r => num(r.restam) >= n).reduce((a,r) => a + num(r.valor_parcela), 0);
+    projecoes.push({ ...(_mesFuturo(sel.ultimo, n)), valor });
   }
 
   // ── Ranking de categorias (valor + quantidade) ──
@@ -83,7 +89,7 @@ async function _renderAll() {
 
   el.innerHTML = `
   <div class="sec">
-    <div class="sec-title">Cartões — ${mesNome(_periodo)} ${_periodo?.split('-')[0]}
+    <div class="sec-title">Cartões — ${sel.titulo}
       ${_filtroCartao ? `<span style="font-size:11px;font-weight:600;color:var(--navy);margin-left:4px">· ${_filtroCartao.replace(' (David)','').replace(' (Vanessa)','')}</span>
         <button onclick="window._p2Clear()" style="font-size:10px;background:none;border:1px solid var(--brd);border-radius:6px;padding:2px 8px;cursor:pointer;color:var(--t3);margin-left:6px">✕ Limpar</button>` : ''}
     </div>
@@ -91,9 +97,9 @@ async function _renderAll() {
       ${kpiHTML({ label:'Total faturas', valor:total, acc:'var(--navy)',
         comp:{ cur:total, prev:prevT||null, yago:yagoT||null, prevLabel:pLabel, yagoLabel:yLabel, inverted:true },
         sub:`${c.length} transações` })}
-      ${kpiHTML({ label:'Pago', valor:pagos, acc:'var(--gtxt)', badge:{cls:'bg',txt:'✓ Pago'}, sub:`${c.filter(r=>r.pago==='SIM').length} faturas` })}
-      ${kpiHTML({ label:'Em aberto', valor:aberto, acc:'var(--red)', badge:aberto>0?{cls:'br',txt:'Pendente'}:null, sub:`${c.filter(r=>r.pago==='NÃO').length} faturas` })}
-      ${kpiHTML({ label:'Compromisso futuro', valor:futura, acc:'var(--amber)', badge:{cls:'ba',txt:'Parcelas'}, sub:'total a pagar nas próximas faturas' })}
+      ${kpiHTML({ label:'Pago', valor:pagos, acc:'var(--gtxt)', badge:{cls:'bg',txt:'✓ Pago'}, sub:`${c.filter(r=>r.pago==='SIM').length} parcelas` })}
+      ${kpiHTML({ label:'Em aberto', valor:aberto, acc:'var(--red)', badge:aberto>0?{cls:'br',txt:'Pendente'}:null, sub:`${c.filter(r=>r.pago!=='SIM').length} parcelas` })}
+      ${kpiHTML({ label:'Compromisso futuro', valor:futura, acc:'var(--amber)', badge:{cls:'ba',txt:'Parcelas'}, sub: ehAno ? `a partir de ${mesNome(sel.ultimo)} · próximas faturas` : 'total a pagar nas próximas faturas' })}
       ${kpiHTML({ label:'Ticket médio', valor:c.length?total/c.length:0, acc:'var(--navy2)', sub:'por transação' })}
       <div class="kpi" style="--acc:var(--purple)">
         <div class="k-lbl">Cartão mais usado</div>
@@ -130,7 +136,7 @@ async function _renderAll() {
       ${prevAnoMes || yagoAnoMes ? `
       <div class="cc">
         <h3>Comparativo — faturas</h3>
-        <div class="csub">Mês atual vs anterior vs ano passado</div>
+        <div class="csub">${ehAno ? 'Ano atual vs ano anterior (mesmos meses)' : 'Mês atual vs anterior vs ano passado'}</div>
         <div class="ch"><canvas id="chComp2"></canvas></div>
       </div>` : '<div></div>'}
     </div>
@@ -141,12 +147,12 @@ async function _renderAll() {
     <div class="cg2">
       <div class="cc">
         <h3>Parcelas que ainda vêm pela frente</h3>
-        <div class="csub">Projeção com base nas parcelas restantes, comparada ao pago este mês</div>
+        <div class="csub">Projeção com base nas parcelas restantes de ${mesNome(sel.ultimo)}, comparada ao ${lblUlt}</div>
         <div class="ch"><canvas id="chProj2"></canvas></div>
       </div>
       <div class="cc" style="display:flex;flex-direction:column;justify-content:center;gap:10px">
         ${kpiHTML({ label:`Projeção · ${projecoes[0]?.label || 'próx. mês'}`, valor:projecoes[0]?.valor||0, acc:'var(--amber)',
-          comp:{ cur:projecoes[0]?.valor||0, prev:pagos||null, prevLabel:'pago este mês', inverted:true },
+          comp:{ cur:projecoes[0]?.valor||0, prev:pagosUlt||null, prevLabel:lblUlt, inverted:true },
           sub:'estimado com base nas parcelas em aberto' })}
         <p style="font-size:11px;color:var(--t3);line-height:1.5">
           A projeção assume que cada compra parcelada continua aparecendo na fatura
@@ -206,8 +212,8 @@ async function _renderAll() {
   mkC('chCatC2', { type:'doughnut', data:{ labels:cs.map(x=>x[0]), datasets:[{ data:cs.map(x=>Math.round(x[1])), backgroundColor:PAL, borderWidth:2, borderColor:'#fff' }] }, options: doughnutOpts(total) });
 
   if (prevAnoMes || yagoAnoMes) {
-    const labels = [pLabel, mesNome(_periodo), yLabel].filter(Boolean);
-    const vals   = [prevT, total, yagoT].filter((_,i) => [prevAnoMes,_periodo,yagoAnoMes][i]);
+    const labels = [pLabel, sel.label, yLabel].filter(Boolean);
+    const vals   = [prevT, total, yagoT].filter((_,i) => [prevAnoMes,true,yagoAnoMes][i]);
     mkC('chComp2', { type:'bar',
       data:{ labels, datasets:[{ data:vals.map(Math.round), backgroundColor: COR_COMPARATIVO, borderRadius:6, borderWidth:0 }] },
       options: barOpts() });
@@ -216,9 +222,9 @@ async function _renderAll() {
   // Gráfico de projeção: 1ª barra = pago este mês (real), demais = projetado (parcelas restantes)
   mkC('chProj2', { type:'bar',
     data: {
-      labels: ['Pago este mês', ...projecoes.map(p=>p.label)],
+      labels: [ehAno ? `Pago ${mesNome(sel.ultimo).slice(0,3)}` : 'Pago este mês', ...projecoes.map(p=>p.label)],
       datasets: [{
-        data: [Math.round(pagos), ...projecoes.map(p=>Math.round(p.valor))],
+        data: [Math.round(pagosUlt), ...projecoes.map(p=>Math.round(p.valor))],
         backgroundColor: [COR_PAGO, ...projecoes.map(()=>COR_PROJETADO)],
         borderRadius: 6, borderWidth: 0,
       }],
@@ -298,9 +304,8 @@ function _mesFuturo(anoMes, n) {
   return { anoMes: anoMesNovo, label: `${mesNome(anoMesNovo).slice(0,3)}/${anoNovo}` };
 }
 
-async function _query(anoMes) {
-  if (!anoMes) return [];
-  const { data, error } = await sb.from('cartoes').select('*').eq('ano_mes', anoMes).order('cartao').order('categoria');
-  if (error) throw error;
-  return data || [];
+async function _query(meses) {
+  if (!meses?.length) return [];
+  return selectTodos(() => sb.from('cartoes').select('*').in('ano_mes', meses)
+    .order('ano_mes').order('cartao').order('categoria').order('id'));
 }

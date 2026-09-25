@@ -1,16 +1,26 @@
-import { sb, getPeriodoAnterior, getMesmoMesAnoPassado } from './supabase-client.js';
-import { fmt, fmtPct, num, mesNome, PAL, mkC, kpiHTML, renderTable, catIcon, doughnutOpts, legendHTML } from './utils.js';
+import { sb, selectTodos } from './supabase-client.js';
+import { fmt, fmtPct, num, mesNome, kpiHTML, renderTable, catIcon } from './utils.js';
 
-let _periodo = null;
+// ─── Página 1 · Gastos & Salários ─────────────────────────────────────────────
+// Recebe a seleção de período montada em app.js (montarSelecao):
+//   modo 'mes' → um mês; comparações com o mês de calendário anterior
+//   modo 'ano' → soma dos meses carregados no ano; comparações com o ano anterior
+// Regra do saldo: Receita − Gastos fixos − Gastos pontuais − Cartões.
+// Tipo de gasto: 'Fixo' e todo o resto = Pontual.
+
+const MESES_CURTOS = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+
+let _sel = null;
 let _filtroCategoria = null;
 let _sortCol = null;
 let _sortDir = 'asc';
 let _gastosAtual = [];
 let _catOrigem = 'todos';   // tabela comparativa por categoria: 'todos' | 'conta' | 'cartao'
-let _catDados  = null;      // { gastos, gastosP, cartoes, cartoesP, pLabel }
+let _catDados  = null;
+let _demoAbertos = { receita:false, fixo:true, pontual:true, cartao:false };  // grupos do demonstrativo
 
-export async function render(periodo) {
-  _periodo = periodo;
+export async function render(sel) {
+  _sel = sel;
   _filtroCategoria = null;
   _sortCol = null;
   await _renderAll();
@@ -20,81 +30,74 @@ async function _renderAll() {
   const el = document.getElementById('p1');
   el.innerHTML = `<div style="padding:40px;text-align:center"><div class="spinner"></div></div>`;
 
-  // Buscar dados do período atual
-  const [gastos, salarios, cartoes] = await Promise.all([
-    _queryGastos(_periodo),
-    _querySalarios(_periodo),
-    _queryCartoes(_periodo),
+  const sel  = _sel;
+  const prev = sel.prev;
+  const yago = sel.yago;
+
+  const [gastos, salarios, cartoes, gastosP, salariosP, cartoesP, salariosY, cartoesY] = await Promise.all([
+    _queryGastos(sel.meses), _querySalarios(sel.meses), _queryCartoes(sel.meses),
+    _queryGastos(prev?.meses), _querySalarios(prev?.meses), _queryCartoes(prev?.meses),
+    _querySalarios(yago?.meses), _queryCartoes(yago?.meses),
   ]);
 
-  // Comparativos
-  const prevAnoMes  = await getPeriodoAnterior(_periodo);
-  const yagoAnoMes  = await getMesmoMesAnoPassado(_periodo);
-  const [gastosP, salariosP, cartoesP] = prevAnoMes
-    ? await Promise.all([_queryGastos(prevAnoMes), _querySalarios(prevAnoMes), _queryCartoes(prevAnoMes)])
-    : [[], [], []];
-  const [gastosY, salariosY, cartoesY] = yagoAnoMes
-    ? await Promise.all([_queryGastos(yagoAnoMes), _querySalarios(yagoAnoMes), _queryCartoes(yagoAnoMes)])
-    : [[], [], []];
-
   _gastosAtual = gastos;
+  const gastosFiltrados = _filtroCategoria ? gastos.filter(r => r.categoria === _filtroCategoria) : gastos;
 
-  const gastosFiltrados = _filtroCategoria
-    ? gastos.filter(r => r.categoria === _filtroCategoria)
-    : gastos;
-
-  // Cálculos — gastos da conta (fixos + pontuais), com filtro de categoria
+  // ── Cálculos ──
   const soma    = (arr, col='valor') => arr.reduce((a,r) => a + num(r[col]), 0);
-  const totalG  = soma(gastosFiltrados);
-  const pagos   = soma(gastosFiltrados.filter(r => r.pago === 'SIM'));
-  const aberto  = totalG - pagos;
-  const totalS  = soma(salarios, 'valor_bruto');
+  const ehFixo  = r => r.tipo_gasto === 'Fixo';
 
-  // Composição do saldo — sempre sobre o mês inteiro (ignora filtro de categoria)
-  const fixos     = soma(gastos.filter(r => r.tipo_gasto === 'Fixo'));
-  const pontuais  = soma(gastos.filter(r => r.tipo_gasto !== 'Fixo'));
-  const totCart   = soma(cartoes, 'valor_parcela');
-  const cartPagos = soma(cartoes.filter(r => r.pago === 'SIM'), 'valor_parcela');
+  const totalS     = soma(salarios, 'valor_bruto');
+  const fixos      = soma(gastos.filter(ehFixo));
+  const pontuais   = soma(gastos.filter(r => !ehFixo(r)));
+  const totCart    = soma(cartoes, 'valor_parcela');
+  const saldo      = totalS - fixos - pontuais - totCart;
+  const nFixos     = gastos.filter(ehFixo).length;
+  const nPont      = gastos.length - nFixos;
+
+  const totalG     = soma(gastosFiltrados);
+  const pagos      = soma(gastosFiltrados.filter(r => r.pago === 'SIM'));
+  const aberto     = totalG - pagos;
+  const cartPagos  = soma(cartoes.filter(r => r.pago === 'SIM'), 'valor_parcela');
   const cartAberto = totCart - cartPagos;
-  const saldo     = totalS - fixos - pontuais - totCart;
-  const nFixos    = gastos.filter(r => r.tipo_gasto === 'Fixo').length;
-  const nPont     = gastos.length - nFixos;
 
-  const prevTG  = soma(gastosP);
-  const yagoTG  = soma(gastosY);
   const prevTS  = soma(salariosP, 'valor_bruto');
-  const yagoTS  = soma(salariosY, 'valor_bruto');
-  const prevFix = soma(gastosP.filter(r => r.tipo_gasto === 'Fixo'));
-  const prevPon = soma(gastosP.filter(r => r.tipo_gasto !== 'Fixo'));
+  const prevFix = soma(gastosP.filter(ehFixo));
+  const prevPon = soma(gastosP.filter(r => !ehFixo(r)));
+  const prevTG  = prevFix + prevPon;
   const prevTC  = soma(cartoesP, 'valor_parcela');
+  const prevSaldo = prev ? prevTS - prevTG - prevTC : null;
+  const yagoTS  = soma(salariosY, 'valor_bruto');
   const yagoTC  = soma(cartoesY, 'valor_parcela');
-  const prevSaldo = prevAnoMes ? prevTS - prevTG - prevTC : null;
 
-  const pLabel  = prevAnoMes ? mesNome(prevAnoMes) : '';
-  const yLabel  = yagoAnoMes ? mesNome(yagoAnoMes) + '/' + yagoAnoMes?.split('-')[0] : '';
+  const pLabel = prev?.label || '';
+  const yLabel = yago?.label || '';
+  const ehAno  = sel.modo === 'ano';
+  const nMeses = sel.meses.length;
+  const unid   = ehAno ? 'período' : 'mês';
 
-  _catDados = { gastos, gastosP, cartoes, cartoesP, pLabel, temPrev: !!prevAnoMes };
+  _catDados = { gastos, gastosP, cartoes, cartoesP, prev, atualLabel: sel.label };
 
-  // Montar HTML
+  // ── HTML ──
   el.innerHTML = `
   <!-- KPIs: de onde vem e para onde vai o salário -->
   <div class="sec">
-    <div class="sec-title">Resumo — ${mesNome(_periodo)} ${_periodo?.split('-')[0]}</div>
+    <div class="sec-title">Resumo — ${sel.titulo}</div>
     <div class="kg">
       ${kpiHTML({ label:'Receita total', valor:totalS, acc:'var(--gtxt)',
-        comp:{ cur:totalS, prev:prevTS||null, yago:yagoTS||null, prevLabel:pLabel, yagoLabel:yLabel },
-        sub:`${salarios.length} proventos` })}
+        comp:{ cur:totalS, prev:prev?prevTS:null, yago:yago?yagoTS:null, prevLabel:pLabel, yagoLabel:yLabel },
+        sub: ehAno ? `${nMeses} meses · média ${fmt(totalS / (nMeses||1))}/mês` : `${salarios.length} proventos` })}
       ${kpiHTML({ label:'(−) Gastos fixos', valor:fixos, acc:'var(--navy2)',
-        comp:{ cur:fixos, prev:prevFix||null, prevLabel:pLabel, inverted:true },
+        comp:{ cur:fixos, prev:prev?prevFix:null, prevLabel:pLabel, inverted:true },
         sub:`${nFixos} itens · ${fmtPct(fixos, totalS)} da receita` })}
       ${kpiHTML({ label:'(−) Gastos pontuais', valor:pontuais, acc:'var(--amber)',
-        comp:{ cur:pontuais, prev:prevPon||null, prevLabel:pLabel, inverted:true },
+        comp:{ cur:pontuais, prev:prev?prevPon:null, prevLabel:pLabel, inverted:true },
         sub:`${nPont} itens · ${fmtPct(pontuais, totalS)} da receita` })}
       ${kpiHTML({ label:'(−) Cartões', valor:totCart, acc:'var(--purple)',
-        comp:{ cur:totCart, prev:prevTC||null, yago:yagoTC||null, prevLabel:pLabel, yagoLabel:yLabel, inverted:true },
+        comp:{ cur:totCart, prev:prev?prevTC:null, yago:yago?yagoTC:null, prevLabel:pLabel, yagoLabel:yLabel, inverted:true },
         sub:`${cartoes.length} parcelas · ${fmtPct(totCart, totalS)} da receita` })}
       <div class="kpi kpi-saldo" style="--acc:${saldo>=0?'var(--blue)':'var(--red)'}">
-        <div class="k-lbl">(=) Saldo do mês</div>
+        <div class="k-lbl">(=) Saldo do ${ehAno ? 'ano' : 'mês'}</div>
         <div class="k-val">${fmt(saldo)}</div>
         <span class="badge ${saldo>=0?'bb':'br'}">${saldo>=0?'Sobrou':'Faltou'} · ${totalS>0 ? fmtPct(Math.abs(saldo), totalS)+' da receita' : '—'}</span>
         ${prevSaldo != null ? `<div class="k-comp ${saldo>=prevSaldo?'up':'down'}">${saldo>=prevSaldo?'▲':'▼'} ${fmt(Math.abs(saldo-prevSaldo))} vs ${pLabel}</div>` : ''}
@@ -105,12 +108,14 @@ async function _renderAll() {
 
   <!-- Status de pagamento: conta e cartões separados -->
   <div class="sec">
-    <div class="sec-title">Pagamentos do mês
-      ${_filtroCategoria ? `<span style="font-size:11px;font-weight:600;color:var(--navy);margin-left:4px">· ${_filtroCategoria}</span>` : ''}
+    <div class="sec-title">Pagamentos do ${unid}
+      ${_filtroCategoria ? `
+        <span style="font-size:11px;font-weight:600;color:var(--navy);margin-left:4px">· ${_filtroCategoria}</span>
+        <button onclick="window._p1ClearFilter()" style="font-size:10px;background:none;border:1px solid var(--brd);border-radius:6px;padding:2px 8px;cursor:pointer;color:var(--t3);margin-left:6px">✕ Limpar</button>` : ''}
     </div>
     <div class="kg">
       ${kpiHTML({ label:'Conta · total gastos', valor:totalG, acc:'var(--red)',
-        comp:{ cur:totalG, prev:(_filtroCategoria?null:prevTG)||null, prevLabel:pLabel, inverted:true },
+        comp:{ cur:totalG, prev:(prev && !_filtroCategoria) ? prevTG : null, prevLabel:pLabel, inverted:true },
         sub:`${gastosFiltrados.length} lançamentos (fixos + pontuais)` })}
       ${kpiHTML({ label:'Conta · pagos', valor:pagos, acc:'var(--gtxt)',
         badge:{ cls:'bg', txt:'✓ Pago' },
@@ -127,40 +132,26 @@ async function _renderAll() {
     </div>
   </div>
 
-  <!-- Gastos Fixos -->
+  ${ehAno ? `
+  <!-- Ano inteiro: demonstrativo com os meses em colunas -->
+  <div class="sec">
+    <div class="sec-title">Demonstrativo mês a mês — ${sel.ano}</div>
+    <div class="tcard">
+      <div class="tbar">
+        <h3>Receita, gastos e saldo por mês <span style="font-size:10px;font-weight:500;color:var(--t3)">(clique num grupo para abrir/fechar o detalhe)</span></h3>
+      </div>
+      <div class="tw tw-demo"><table class="demo"><thead id="thDemo"></thead><tbody id="tbDemo"></tbody></table></div>
+    </div>
+  </div>` : `
+  <!-- Mês: status de pagamento dos gastos fixos -->
   <div class="sec">
     <div class="sec-title">Gastos fixos — status de pagamento</div>
     <div class="fixo-grid" id="fixoGrid"></div>
-  </div>
+  </div>`}
 
-  <!-- Gráficos -->
+  <!-- Comparativo por categoria: atual x anterior -->
   <div class="sec">
-    <div class="sec-title">
-      Distribuição
-      ${_filtroCategoria ? `
-        <span style="font-size:11px;font-weight:600;color:var(--navy);margin-left:4px">· ${_filtroCategoria}</span>
-        <button onclick="window._p1ClearFilter()" style="font-size:10px;background:none;border:1px solid var(--brd);border-radius:6px;padding:2px 8px;cursor:pointer;color:var(--t3);margin-left:6px">✕ Limpar</button>
-      ` : ''}
-    </div>
-    <div class="cg2">
-      <div class="cc">
-        <h3>Por categoria <span style="font-size:10px;color:var(--t3)">(clique para filtrar)</span></h3>
-        <div class="csub">Valor total no período</div>
-        <div class="ch"><canvas id="chCat1"></canvas></div>
-        <div class="chip-legend" id="legCat1"></div>
-      </div>
-      <div class="cc">
-        <h3>Pago vs. A pagar</h3>
-        <div class="csub">Status dos lançamentos</div>
-        <div class="ch"><canvas id="chStatus1"></canvas></div>
-        <div class="chip-legend" id="legStatus1"></div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Comparativo por categoria: mês atual x anterior -->
-  <div class="sec">
-    <div class="sec-title">Por categoria — ${mesNome(_periodo)} vs ${pLabel || 'mês anterior'}</div>
+    <div class="sec-title">Por categoria — ${sel.label} vs ${pLabel || (ehAno ? 'ano anterior' : 'mês anterior')}</div>
     <div class="tcard">
       <div class="tbar">
         <h3>Comparativo por categoria <span style="font-size:10px;font-weight:500;color:var(--t3)">(clique numa linha para filtrar)</span></h3>
@@ -174,7 +165,7 @@ async function _renderAll() {
     </div>
   </div>
 
-  <!-- Tabela -->
+  <!-- Lançamentos -->
   <div class="sec">
     <div class="sec-title">Lançamentos</div>
     <div class="tcard">
@@ -186,54 +177,26 @@ async function _renderAll() {
     </div>
   </div>`;
 
-  // Fixos visuais
-  const fixosLista = gastos.filter(r => r.tipo_gasto === 'Fixo');
-  document.getElementById('fixoGrid').innerHTML = fixosLista.map(r => `
-    <div class="fixo-card ${r.pago === 'SIM' ? 'sim' : 'nao'}">
-      <div class="fixo-ico">${catIcon(r.categoria)}</div>
-      <div class="fixo-info">
-        <div class="fixo-desc">${r.descricao || r.categoria || '—'}</div>
-        <div class="fixo-cat">${r.categoria || ''} · ${r.responsavel || ''}</div>
-      </div>
-      <div class="fixo-right">
-        <div class="fixo-val">${fmt(r.valor)}</div>
-        <span class="status-pill-sm ${r.pago === 'SIM' ? 's-sim' : 's-nao'}">
-          ${r.pago === 'SIM' ? '✓ Pago' : '✗ Pendente'}
-        </span>
-      </div>
-    </div>`).join('') || '<p style="color:var(--t3);padding:12px">Nenhum gasto fixo no período</p>';
+  if (ehAno) {
+    _renderDemonstrativo({ gastos, salarios, cartoes });
+  } else {
+    const fixosLista = gastos.filter(ehFixo);
+    document.getElementById('fixoGrid').innerHTML = fixosLista.map(r => `
+      <div class="fixo-card ${r.pago === 'SIM' ? 'sim' : 'nao'}">
+        <div class="fixo-ico">${catIcon(r.categoria)}</div>
+        <div class="fixo-info">
+          <div class="fixo-desc">${r.descricao || r.categoria || '—'}</div>
+          <div class="fixo-cat">${r.categoria || ''} · ${r.responsavel || ''}</div>
+        </div>
+        <div class="fixo-right">
+          <div class="fixo-val">${fmt(r.valor)}</div>
+          <span class="status-pill-sm ${r.pago === 'SIM' ? 's-sim' : 's-nao'}">
+            ${r.pago === 'SIM' ? '✓ Pago' : '✗ Pendente'}
+          </span>
+        </div>
+      </div>`).join('') || '<p style="color:var(--t3);padding:12px">Nenhum gasto fixo no período</p>';
+  }
 
-  // Gráfico categorias (clicável) + legenda com valor e %
-  const cm = {};
-  gastosFiltrados.forEach(r => { const k = r.categoria || 'Outros'; cm[k] = (cm[k] || 0) + num(r.valor); });
-  const cs = Object.entries(cm).sort((a,b) => b[1]-a[1]).slice(0,8);
-
-  mkC('chCat1', {
-    type: 'doughnut',
-    data: { labels: cs.map(x=>x[0]), datasets: [{ data: cs.map(x=>Math.round(x[1])), backgroundColor: PAL, borderWidth: 2, borderColor: '#fff' }] },
-    options: {
-      ...doughnutOpts(totalG, { legend:false }),
-      onClick: (e, els) => {
-        if (els.length) { _filtroCategoria = cs[els[0].index][0]; _renderAll(); }
-      },
-    },
-  });
-  document.getElementById('legCat1').innerHTML = legendHTML(
-    cs.map(([label,value],i) => ({ label, value, color: PAL[i % PAL.length] })), totalG,
-  );
-
-  // Gráfico status + legenda
-  mkC('chStatus1', {
-    type: 'doughnut',
-    data: { labels: ['Pago','A pagar'], datasets: [{ data: [Math.round(pagos), Math.round(aberto)], backgroundColor: ['#375623','#C00000'], borderWidth: 2, borderColor: '#fff' }] },
-    options: doughnutOpts(totalG, { legend:false }),
-  });
-  document.getElementById('legStatus1').innerHTML = legendHTML([
-    { label:'Pago',    value:pagos,  color:'#375623' },
-    { label:'A pagar', value:aberto, color:'#C00000' },
-  ], totalG);
-
-  // Abas da tabela comparativa por categoria
   document.querySelectorAll('#catOrigemTabs .stab').forEach(btn => {
     btn.addEventListener('click', () => { _catOrigem = btn.dataset.o; _renderCatComp(); });
   });
@@ -245,10 +208,105 @@ async function _renderAll() {
   _renderCatComp();
 }
 
-// ─── Tabela: gasto por categoria, mês atual x mês anterior ───────────────────
+// ─── Demonstrativo do ano: grupos em linhas, meses em colunas ────────────────
+function _renderDemonstrativo({ gastos, salarios, cartoes }) {
+  const ano      = _sel.ano;
+  const colMeses = MESES_CURTOS.map((_, i) => `${ano}-${String(i + 1).padStart(2, '0')}`);
+  const carregado = new Set(_sel.meses);
+
+  // Agrupa linhas de detalhe: chave = categoria + descrição
+  const agrupar = (arr, col, catFn, descFn) => {
+    const mapa = {};
+    arr.forEach(r => {
+      const cat = catFn(r) || 'Outros', desc = descFn(r) || '';
+      const k = cat + '|' + desc;
+      if (!mapa[k]) mapa[k] = { cat, desc, porMes:{}, total:0 };
+      mapa[k].porMes[r.ano_mes] = (mapa[k].porMes[r.ano_mes] || 0) + num(r[col]);
+      mapa[k].total += num(r[col]);
+    });
+    return Object.values(mapa).sort((a,b) => b.total - a.total);
+  };
+  const somaMes = linhas => {
+    const m = {}; let t = 0;
+    linhas.forEach(l => { Object.entries(l.porMes).forEach(([k,v]) => { m[k] = (m[k]||0) + v; }); t += l.total; });
+    return { porMes:m, total:t };
+  };
+
+  const grupos = [
+    { key:'receita', nome:'Receita',              sinal:'',   cls:'g-rec',
+      linhas: agrupar(salarios, 'valor_bruto', r => r.tipo_provento, r => [r.descricao, r.responsavel].filter(Boolean).join(' · ')) },
+    { key:'fixo',    nome:'(−) Gastos fixos',     sinal:'−',  cls:'g-fix',
+      linhas: agrupar(gastos.filter(r => r.tipo_gasto === 'Fixo'), 'valor', r => r.categoria, r => r.descricao) },
+    { key:'pontual', nome:'(−) Gastos pontuais',  sinal:'−',  cls:'g-pon',
+      linhas: agrupar(gastos.filter(r => r.tipo_gasto !== 'Fixo'), 'valor', r => r.categoria, r => r.descricao) },
+    { key:'cartao',  nome:'(−) Cartões',          sinal:'−',  cls:'g-car',
+      linhas: agrupar(cartoes, 'valor_parcela', r => r.categoria, () => '') },
+  ];
+  grupos.forEach(g => Object.assign(g, somaMes(g.linhas)));
+
+  const saldoMes = {};
+  colMeses.forEach(m => {
+    if (!carregado.has(m)) return;
+    const [rec, fix, pon, car] = grupos.map(g => g.porMes[m] || 0);
+    saldoMes[m] = rec - fix - pon - car;
+  });
+  const [recT, fixT, ponT, carT] = grupos.map(g => g.total);
+  const saldoT = recT - fixT - ponT - carT;
+
+  const cel = (v, m, extra='') => {
+    if (m && !carregado.has(m)) return `<td class="tr vazio">—</td>`;
+    return `<td class="tr ${extra}">${v ? fmt(v) : '<span class="zero">–</span>'}</td>`;
+  };
+
+  document.getElementById('thDemo').innerHTML = `<tr>
+    <th class="c-cat">Categoria</th><th class="c-desc">Descrição</th>
+    ${colMeses.map((m,i) => `<th class="tr ${carregado.has(m)?'':'vazio'}">${MESES_CURTOS[i]}</th>`).join('')}
+    <th class="tr c-tot">Total</th></tr>`;
+
+  let html = '';
+  grupos.forEach(g => {
+    const aberto = _demoAbertos[g.key];
+    html += `<tr class="demo-grp ${g.cls}" data-g="${g.key}">
+      <td class="c-cat" colspan="2"><span class="caret">${aberto ? '▾' : '▸'}</span> ${g.nome}
+        <span class="grp-n">${g.linhas.length}</span></td>
+      ${colMeses.map(m => cel(g.porMes[m], m)).join('')}
+      <td class="tr c-tot">${fmt(g.total)}</td></tr>`;
+    if (aberto) {
+      html += g.linhas.map(l => `<tr class="demo-det">
+        <td class="c-cat">${catIcon(l.cat)} ${l.cat}</td>
+        <td class="c-desc">${l.desc || '<span class="zero">—</span>'}</td>
+        ${colMeses.map(m => cel(l.porMes[m], m)).join('')}
+        <td class="tr c-tot">${fmt(l.total)}</td></tr>`).join('');
+    }
+  });
+
+  html += `<tr class="demo-saldo">
+    <td class="c-cat" colspan="2">(=) Saldo</td>
+    ${colMeses.map(m => carregado.has(m)
+      ? `<td class="tr ${saldoMes[m] < 0 ? 'neg' : 'pos'}">${fmt(saldoMes[m])}</td>`
+      : `<td class="tr vazio">—</td>`).join('')}
+    <td class="tr c-tot ${saldoT < 0 ? 'neg' : 'pos'}">${fmt(saldoT)}</td></tr>`;
+
+  const pct = (s, r) => r > 0 ? (s / r * 100).toFixed(1) + '%' : '—';
+  html += `<tr class="demo-pct">
+    <td class="c-cat" colspan="2">% da receita que sobrou</td>
+    ${colMeses.map(m => carregado.has(m)
+      ? `<td class="tr ${saldoMes[m] < 0 ? 'neg' : 'pos'}">${pct(saldoMes[m], grupos[0].porMes[m] || 0)}</td>`
+      : `<td class="tr vazio">—</td>`).join('')}
+    <td class="tr c-tot ${saldoT < 0 ? 'neg' : 'pos'}">${pct(saldoT, recT)}</td></tr>`;
+
+  const tb = document.getElementById('tbDemo');
+  tb.innerHTML = html;
+  tb.querySelectorAll('tr.demo-grp').forEach(tr => tr.addEventListener('click', () => {
+    _demoAbertos[tr.dataset.g] = !_demoAbertos[tr.dataset.g];
+    _renderDemonstrativo({ gastos, salarios, cartoes });
+  }));
+}
+
+// ─── Tabela: gasto por categoria, período atual x anterior ───────────────────
 function _renderCatComp() {
   if (!_catDados) return;
-  const { gastos, gastosP, cartoes, cartoesP, pLabel, temPrev } = _catDados;
+  const { gastos, gastosP, cartoes, cartoesP, prev, atualLabel } = _catDados;
   document.querySelectorAll('#catOrigemTabs .stab').forEach(b =>
     b.classList.toggle('active', b.dataset.o === _catOrigem));
 
@@ -266,16 +324,18 @@ function _renderCatComp() {
   const linhas = Object.values(mapa).sort((a,b) => b.atual - a.atual || b.prev - a.prev);
   const totA = linhas.reduce((a,r) => a + r.atual, 0);
   const totP = linhas.reduce((a,r) => a + r.prev, 0);
-  const prevNome = pLabel || 'Mês anterior';
+  const temPrev  = !!prev;
+  const prevNome = prev?.label || (_sel.modo === 'ano' ? 'Ano anterior' : 'Mês anterior');
+  const pctLbl   = _sel.modo === 'ano' ? '% do ano' : '% do mês';
 
   document.getElementById('thCat1').innerHTML = `<tr>
-    <th>Categoria</th><th class="tr">${prevNome}</th><th class="tr">${mesNome(_periodo)}</th>
-    <th class="tr">Variação R$</th><th class="tr">Variação %</th><th class="tr">% do mês</th></tr>`;
+    <th>Categoria</th><th class="tr">${prevNome}</th><th class="tr">${atualLabel}</th>
+    <th class="tr">Variação R$</th><th class="tr">Variação %</th><th class="tr">${pctLbl}</th></tr>`;
 
   const varCell = (a, p) => {
-    const d = a - p;
     if (!temPrev) return ['<td class="tr" style="color:var(--t3)">—</td>', '<td class="tr" style="color:var(--t3)">—</td>'];
-    const cls = d > 0.004 ? 'neg' : d < -0.004 ? 'pos' : '';
+    const d = a - p;
+    const cls  = d > 0.004 ? 'neg' : d < -0.004 ? 'pos' : '';
     const seta = d > 0.004 ? '▲ ' : d < -0.004 ? '▼ ' : '';
     const pct = p > 0 ? `${seta}${Math.abs(d / p * 100).toFixed(1)}%`
               : a > 0 ? '<span class="status-pill-sm s-par">Novo</span>' : '—';
@@ -302,9 +362,10 @@ function _renderCatComp() {
 
   const [tR, tP] = varCell(totA, totP);
   document.getElementById('tfCat1').innerHTML = linhas.length ? `<tr class="tot-row">
-    <td>Total</td><td class="tr">${fmt(totP)}</td><td class="tr">${fmt(totA)}</td>${tR}${tP}<td class="tr">100%</td></tr>` : '';
+    <td>Total</td><td class="tr">${temPrev ? fmt(totP) : '—'}</td><td class="tr">${fmt(totA)}</td>${tR}${tP}<td class="tr">100%</td></tr>` : '';
 }
 
+// ─── Tabela de lançamentos ───────────────────────────────────────────────────
 function _renderTable() {
   const srch = (document.getElementById('srch1')?.value || '').toLowerCase();
   const cols = ['ano_mes','categoria','descricao','responsavel','valor','pago','tipo_gasto'];
@@ -339,24 +400,20 @@ function _comparar(a, b, col) {
   return String(a[col] ?? '').localeCompare(String(b[col] ?? ''), 'pt-BR');
 }
 
-// Queries
-async function _queryGastos(anoMes) {
-  if (!anoMes) return [];
-  const { data, error } = await sb.from('gastos').select('*').eq('ano_mes', anoMes).order('tipo_gasto').order('categoria');
-  if (error) throw error;
-  return data || [];
+// ─── Queries (recebem a lista de meses 'AAAA-MM' do período) ─────────────────
+async function _queryGastos(meses) {
+  if (!meses?.length) return [];
+  return selectTodos(() => sb.from('gastos').select('*').in('ano_mes', meses)
+    .order('ano_mes', { ascending:false }).order('tipo_gasto').order('categoria').order('id'));
 }
 
-async function _queryCartoes(anoMes) {
-  if (!anoMes) return [];
-  const { data, error } = await sb.from('cartoes').select('categoria, valor_parcela, pago').eq('ano_mes', anoMes);
-  if (error) throw error;
-  return data || [];
+async function _queryCartoes(meses) {
+  if (!meses?.length) return [];
+  return selectTodos(() => sb.from('cartoes').select('ano_mes, categoria, valor_parcela, pago')
+    .in('ano_mes', meses).order('id'));
 }
 
-async function _querySalarios(anoMes) {
-  if (!anoMes) return [];
-  const { data, error } = await sb.from('salarios').select('*').eq('ano_mes', anoMes);
-  if (error) throw error;
-  return data || [];
+async function _querySalarios(meses) {
+  if (!meses?.length) return [];
+  return selectTodos(() => sb.from('salarios').select('*').in('ano_mes', meses).order('id'));
 }

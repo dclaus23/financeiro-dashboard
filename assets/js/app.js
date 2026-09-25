@@ -1,11 +1,12 @@
-import { sb, getPeriodos } from './supabase-client.js';
+import { sb, getMesesDisponiveis, montarSelecao } from './supabase-client.js';
 import { mesNome, killCharts, isHidden, setHideValues } from './utils.js';
 import { render as renderP1 } from './p1-gastos.js';
 import { render as renderP2 } from './p2-cartoes.js';
 import { render as renderP3 } from './p3-carteira.js';
 
-let _periodos  = [];
-let _periodo   = null;   // 'AAAA-MM' | 'todos'
+let _disponiveis = [];    // 'AAAA-MM' com dados para a página atual
+let _ano  = null;         // 'AAAA'
+let _mes  = null;         // 'AAAA-MM' | 'ano' (= ano inteiro)
 let _page      = 'p1';
 let _user      = null;
 
@@ -30,15 +31,12 @@ async function afterLogin() {
   document.getElementById('appShell').style.display = 'block';
 
   try {
-    _periodos = await getPeriodos();
-    if (!_periodos.length) {
+    await carregarDisponiveis();
+    if (!_disponiveis.length) {
       setDot('err', 'Sem dados — execute o ETL primeiro');
       showNoData();
       return;
     }
-    // Selecionar período mais recente por padrão
-    _periodo = _periodos[_periodos.length - 1].ano_mes;
-    buildPeriodBar();
     setDot('ok', 'Conectado');
     await renderPage();
   } catch(err) {
@@ -71,25 +69,62 @@ document.getElementById('loginForm')?.addEventListener('submit', async e => {
   }
 });
 
-// ─── Barra de períodos (select) ────────────────────────────────────────────────
-function buildPeriodBar() {
-  const el = document.getElementById('periodBtns');
-  const maisRecente = _periodos[_periodos.length - 1];
-
-  el.innerHTML = `
-    <select class="pfsel" id="periodSelect" onchange="window.setPeriodo(this.value)">
-      <option value="todos" ${_periodo==='todos'?'selected':''}>Todos os períodos</option>
-      ${_periodos.map(p => `
-        <option value="${p.ano_mes}" ${_periodo===p.ano_mes?'selected':''}>${mesNome(p.ano_mes)} ${p.ano}</option>
-      `).join('')}
-    </select>`;
-
-  document.getElementById('pbarRight').textContent =
-    `${_periodos.length} mês(es) · último: ${mesNome(maisRecente.ano_mes)} ${maisRecente.ano}`;
+// ─── Filtros de período: Ano + Mês ────────────────────────────────────────────
+// Busca os meses com dados para a página atual e ajusta a seleção para algo
+// que exista nela (ex.: Carteira tem meses da B3 que Gastos não tem).
+async function carregarDisponiveis() {
+  _disponiveis = await getMesesDisponiveis(_page);
+  if (!_disponiveis.length) { buildPeriodBar(); return; }
+  const anos = _anos();
+  if (!_ano || !anos.includes(_ano)) {
+    _ano = anos[anos.length - 1];
+    _mes = _mesesDoAno(_ano).at(-1);           // padrão: mês mais recente
+  } else if (_mes !== 'ano' && !_disponiveis.includes(_mes)) {
+    _mes = _escolherMes(_ano, _mes);
+  }
+  buildPeriodBar();
 }
 
-window.setPeriodo = async (p) => {
-  _periodo = p;
+const _anos = () => [...new Set(_disponiveis.map(p => p.split('-')[0]))].sort();
+const _mesesDoAno = ano => _disponiveis.filter(p => p.startsWith(ano + '-'));
+
+// Ao trocar de ano: mantém "ano inteiro"; senão tenta o mesmo mês, senão o mais recente.
+function _escolherMes(ano, mesAtual) {
+  if (mesAtual === 'ano') return 'ano';
+  const meses = _mesesDoAno(ano);
+  const mesmoNum = mesAtual ? `${ano}-${mesAtual.split('-')[1]}` : null;
+  return meses.includes(mesmoNum) ? mesmoNum : meses.at(-1);
+}
+
+function buildPeriodBar() {
+  const el = document.getElementById('periodBtns');
+  if (!_disponiveis.length) { el.innerHTML = ''; document.getElementById('pbarRight').textContent = ''; return; }
+  const meses = _mesesDoAno(_ano);
+
+  el.innerHTML = `
+    <select class="pfsel" id="anoSelect" onchange="window.setAno(this.value)" title="Ano">
+      ${_anos().map(a => `<option value="${a}" ${a===_ano?'selected':''}>${a}</option>`).join('')}
+    </select>
+    <select class="pfsel" id="mesSelect" onchange="window.setMes(this.value)" title="Mês">
+      <option value="ano" ${_mes==='ano'?'selected':''}>Ano inteiro</option>
+      ${meses.map(p => `<option value="${p}" ${_mes===p?'selected':''}>${mesNome(p)}</option>`).join('')}
+    </select>`;
+
+  const ultimo = _disponiveis.at(-1);
+  document.getElementById('pbarRight').textContent =
+    `${meses.length} mês(es) carregados em ${_ano} · último: ${mesNome(ultimo)} ${ultimo.split('-')[0]}`;
+}
+
+window.setAno = async (ano) => {
+  _mes = _escolherMes(ano, _mes);
+  _ano = ano;
+  buildPeriodBar();
+  killCharts();
+  await renderPage();
+};
+
+window.setMes = async (mes) => {
+  _mes = mes;
   killCharts();
   await renderPage();
 };
@@ -102,16 +137,19 @@ window.setPage = async (page, el) => {
   document.querySelectorAll('.page-content').forEach(d => d.style.display = 'none');
   document.getElementById(page).style.display = 'block';
   killCharts();
+  setDot('spin', 'Carregando...');
+  try { await carregarDisponiveis(); } catch (err) { console.error(err); }
   await renderPage();
 };
 
 async function renderPage() {
-  const p = _periodo === 'todos' ? _periodos[_periodos.length - 1]?.ano_mes : _periodo;
   setDot('spin', 'Carregando...');
   try {
-    if (_page === 'p1') await renderP1(p);
-    else if (_page === 'p2') await renderP2(p);
-    else await renderP3(p);
+    if (!_disponiveis.length) { setDot('err', 'Sem dados para esta página'); _semDadosPagina(); return; }
+    const sel = montarSelecao(_ano, _mes === 'ano' ? null : _mes, _disponiveis);
+    if (_page === 'p1') await renderP1(sel);
+    else if (_page === 'p2') await renderP2(sel);
+    else await renderP3(sel);
     setDot('ok', 'Atualizado');
   } catch(err) {
     setDot('err', 'Erro ao carregar');
@@ -142,6 +180,15 @@ function setDot(s, t) {
   document.getElementById('statusTxt').textContent = t;
 }
 
+function _semDadosPagina() {
+  document.getElementById(_page).innerHTML = `
+    <div class="center-state">
+      <div class="ico">📂</div>
+      <h2>Nenhum mês carregado para esta página</h2>
+      <p>Assim que o ETL enviar os dados, os períodos aparecem no filtro.</p>
+    </div>`;
+}
+
 function showNoData() {
   document.getElementById('p1').innerHTML = `
     <div class="center-state">
@@ -159,8 +206,7 @@ sb.channel('mudancas')
   .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'arquivos_processados' },
     async () => {
       console.log('Novo arquivo detectado no banco — atualizando períodos...');
-      _periodos = await getPeriodos();
-      buildPeriodBar();
+      await carregarDisponiveis();
     })
   .subscribe();
 

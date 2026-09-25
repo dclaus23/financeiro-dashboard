@@ -1,13 +1,14 @@
-import { sb } from './supabase-client.js';
+import { sb, selectTodos } from './supabase-client.js';
 import { fmt, fmtK, num, mesNome, PAL, mkC, kpiHTML, renderTable, doughnutOpts, barOpts } from './utils.js';
 import { getQuotesLive, TIPOS_COTAVEIS } from './brapi.js';
 
-let _periodo = null;
+let _sel = null;       // seleção de período (app.js · montarSelecao)
+let _periodo = null;   // mês da "foto" da posição = último mês do período com posição
 let _renderId = 0;      // evita que uma resposta atrasada da brapi pinte uma tela antiga
 let _refreshTimer = null;
 
-export async function render(periodo) {
-  _periodo = periodo;
+export async function render(sel) {
+  _sel = sel;
   await _renderAll();
 }
 
@@ -18,11 +19,15 @@ async function _renderAll() {
   const el = document.getElementById('p3');
   el.innerHTML = `<div style="padding:40px;text-align:center"><div class="spinner"></div></div>`;
 
-  const [posicao, proventos, aportes] = await Promise.all([
-    _queryPosicao(_periodo),
-    _queryProventos(_periodo),
-    _queryAportes(_periodo),
+  // Posição é uma "foto": usa o último mês do período que tenha posição B3.
+  // Proventos e aportes somam todos os meses do período.
+  const [mesesPos, proventos, aportes] = await Promise.all([
+    _queryMesesComPosicao(_sel.meses),
+    _queryProventos(_sel.meses),
+    _queryAportes(_sel.meses),
   ]);
+  _periodo = mesesPos.at(-1) || null;
+  const posicao = await _queryPosicao(_periodo);
   if (meuRenderId !== _renderId) return; // já navegou pra outro período/página
 
   if (!posicao.length && !aportes.length) {
@@ -115,14 +120,14 @@ function _pintar(el, ativos, provByTk, totalAp, aportes, proventos, status) {
   el.innerHTML = `
   <div class="sec">
     <div class="sec-title">
-      Carteira — posição de ${mesNome(_periodo)} ${_periodo?.split('-')[0]}
+      Carteira — ${_sel.modo === 'ano' ? `${_sel.ano} · ano inteiro · posição de ` : 'posição de '}${_periodo ? `${mesNome(_periodo)} ${_periodo.split('-')[0]}` : '—'}
       <span id="liveBadge" class="live-badge"><span class="live-dot"></span> …</span>
       <button id="btnRefreshCot" class="refresh-btn" title="Atualizar cotações agora">⟳</button>
     </div>
     <div class="kg">
       ${kpiHTML({ label:'Patrimônio total', valor:totalPatr, acc:'var(--purple)', sub:`${ativos.length} ativos` })}
-      ${kpiHTML({ label:'Rend. do mês', valor:totalProv, acc:'var(--gtxt)', badge:{cls:'bg',txt:'Recebido'}, sub:'div + JCP + rendimentos' })}
-      ${kpiHTML({ label:'Aportado', valor:totalAp, acc:'var(--navy)', sub:`${aportes.filter(r=>r.operacao==='Compra').length} compras` })}
+      ${kpiHTML({ label: _sel.modo === 'ano' ? `Rendimentos em ${_sel.ano}` : 'Rend. do mês', valor:totalProv, acc:'var(--gtxt)', badge:{cls:'bg',txt:'Recebido'}, sub:'div + JCP + rendimentos' })}
+      ${kpiHTML({ label: _sel.modo === 'ano' ? `Aportado em ${_sel.ano}` : 'Aportado', valor:totalAp, acc:'var(--navy)', sub:`${aportes.filter(r=>r.operacao==='Compra').length} compras` })}
       ${kpiHTML({ label:'Maior posição', valor:ativos[0]?.valorLive||0, acc:'var(--navy2)', sub:ativos[0]?.ticker||'—' })}
     </div>
   </div>
@@ -258,21 +263,21 @@ function _setLiveBadge(status) {
 }
 
 // ─── Queries Supabase ──────────────────────────────────────────────────────────
+async function _queryMesesComPosicao(meses) {
+  if (!meses?.length) return [];
+  const rows = await selectTodos(() => sb.from('b3_posicao').select('ano_mes').in('ano_mes', meses).order('id'));
+  return [...new Set(rows.map(r => r.ano_mes))].sort();
+}
 async function _queryPosicao(anoMes) {
   if (!anoMes) return [];
-  const { data, error } = await sb.from('b3_posicao').select('*').eq('ano_mes', anoMes);
-  if (error) throw error;
-  return data || [];
+  return selectTodos(() => sb.from('b3_posicao').select('*').eq('ano_mes', anoMes).order('id'));
 }
-async function _queryProventos(anoMes) {
-  if (!anoMes) return [];
-  const { data, error } = await sb.from('b3_proventos').select('*').eq('ano_mes', anoMes).order('valor_liq', {ascending:false});
-  if (error) throw error;
-  return data || [];
+async function _queryProventos(meses) {
+  if (!meses?.length) return [];
+  return selectTodos(() => sb.from('b3_proventos').select('*').in('ano_mes', meses)
+    .order('valor_liq', { ascending:false }).order('id'));
 }
-async function _queryAportes(anoMes) {
-  if (!anoMes) return [];
-  const { data, error } = await sb.from('investimentos').select('*').eq('ano_mes', anoMes);
-  if (error) throw error;
-  return data || [];
+async function _queryAportes(meses) {
+  if (!meses?.length) return [];
+  return selectTodos(() => sb.from('investimentos').select('*').in('ano_mes', meses).order('ano_mes').order('id'));
 }

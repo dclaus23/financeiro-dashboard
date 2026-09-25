@@ -317,3 +317,44 @@ table.cat-comp tfoot td {
   font-weight: 800; border-top: 2px solid var(--brd); border-bottom: none;
 }
 .kpi-saldo { border: 1.5px solid var(--acc); }
+
+/* ── Demonstrativo do ano (p1, modo "Ano inteiro"): meses em colunas ── */
+.tw-demo { max-height: 560px; }
+table.demo { font-size: 11.5px; }
+table.demo th, table.demo td { padding: 7px 10px; }
+table.demo .c-cat {
+  position: sticky; left: 0; z-index: 2; background: var(--card);
+  min-width: 170px; max-width: 220px; overflow: hidden; text-overflow: ellipsis;
+}
+table.demo th.c-cat { z-index: 3; background: var(--surf); }
+table.demo .c-desc { min-width: 150px; max-width: 220px; overflow: hidden; text-overflow: ellipsis; color: var(--t2, var(--t3)); }
+table.demo .c-tot  { font-weight: 800; background: var(--surf); border-left: 1px solid var(--brd); }
+table.demo .vazio  { color: var(--t3); opacity: .45; }
+table.demo .zero   { color: var(--t3); }
+
+table.demo tr.demo-grp { cursor: pointer; }
+table.demo tr.demo-grp td { font-weight: 800; background: var(--surf); }
+table.demo tr.demo-grp .c-cat { background: var(--surf); border-left: 3px solid var(--gacc, var(--navy)); }
+table.demo tr.demo-grp:hover td { background: var(--bbg); }
+table.demo tr.g-rec { --gacc: var(--gtxt); }
+table.demo tr.g-fix { --gacc: var(--navy2); }
+table.demo tr.g-pon { --gacc: var(--amber); }
+table.demo tr.g-car { --gacc: var(--purple); }
+table.demo .caret  { display: inline-block; width: 12px; color: var(--t3); }
+table.demo .grp-n  {
+  font-size: 9px; font-weight: 700; color: var(--t3); background: var(--card);
+  border: 1px solid var(--brd); border-radius: 8px; padding: 0 6px; margin-left: 4px;
+}
+table.demo tr.demo-det td { font-weight: 500; }
+table.demo tr.demo-det .c-cat { padding-left: 26px; }
+
+table.demo tr.demo-saldo td {
+  font-weight: 800; border-top: 2px solid var(--navy); background: var(--bbg);
+}
+table.demo tr.demo-saldo .c-cat { background: var(--bbg); }
+table.demo tr.demo-pct td { font-size: 10.5px; font-weight: 700; }
+table.demo .c-tot { position: sticky; right: 0; z-index: 2; min-width: 105px; box-shadow: -4px 0 6px -4px rgba(0,0,0,.12); }
+table.demo th.c-tot { z-index: 3; }
+table.demo tr.demo-saldo .c-tot { background: var(--bbg); }
+table.demo .c-cat  { min-width: 150px; }
+table.demo .c-desc { min-width: 130px; max-width: 190px; }
