@@ -134,6 +134,9 @@ window.setPage = async (page, el) => {
   _page = page;
   document.querySelectorAll('.pg').forEach(b => b.classList.remove('active'));
   el.classList.add('active');
+  document.getElementById('hdPage').textContent = el.textContent.trim();
+  window.toggleMenu(false);
+  window.scrollTo({ top: 0 });
   document.querySelectorAll('.page-content').forEach(d => d.style.display = 'none');
   document.getElementById(page).style.display = 'block';
   killCharts();
@@ -156,6 +159,19 @@ async function renderPage() {
     console.error(err);
   }
 }
+
+// ─── Menu hambúrguer (celular) ─────────────────────────────────────────────────
+window.toggleMenu = (abrir) => {
+  const nav = document.getElementById('pagesNav');
+  const btn = document.getElementById('btnMenu');
+  const aberto = typeof abrir === 'boolean' ? abrir : !nav.classList.contains('open');
+  nav.classList.toggle('open', aberto);
+  document.getElementById('menuBackdrop').classList.toggle('open', aberto);
+  btn.classList.toggle('open', aberto);
+  btn.setAttribute('aria-expanded', String(aberto));
+  btn.setAttribute('aria-label', aberto ? 'Fechar menu' : 'Abrir menu');
+};
+document.addEventListener('keydown', e => { if (e.key === 'Escape') window.toggleMenu(false); });
 
 // ─── Modo privacidade (ocultar valores) ────────────────────────────────────────
 function atualizarBotaoOlho() {
