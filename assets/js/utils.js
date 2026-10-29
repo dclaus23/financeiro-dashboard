@@ -232,3 +232,40 @@ const ICONS = {
 };
 export const catIcon = cat =>
   Object.entries(ICONS).find(([k]) => (cat || '').includes(k))?.[1] || '💸';
+
+// Arredonda para centavos (evita "lixo" de ponto flutuante, sem perder os centavos)
+export const cent = v => Math.round(num(v) * 100) / 100;
+
+// ─── Plugin: valor completo (R$ com centavos) escrito na ponta de cada barra ──
+// Uso: plugins: [rotulosBarra()] na config do Chart. Respeita o modo ocultar valores (usa fmt).
+export function rotulosBarra({ fonte = 10, cor = '#4A5568', datasets = null } = {}) {
+  return {
+    id: 'rotulosBarra',
+    afterDatasetsDraw(chart) {
+      const { ctx } = chart;
+      const horizontal = chart.options.indexAxis === 'y';
+      ctx.save();
+      ctx.font = `700 ${fonte}px -apple-system, 'Segoe UI', sans-serif`;
+      ctx.fillStyle = cor;
+      chart.data.datasets.forEach((ds, di) => {
+        if (datasets && !datasets.includes(di)) return;
+        if ((ds.type || chart.config.type) !== 'bar') return;
+        const meta = chart.getDatasetMeta(di);
+        if (meta.hidden) return;
+        meta.data.forEach((el, i) => {
+          const v = ds.data[i];
+          if (v == null) return;
+          const txt = fmt(v);
+          if (horizontal) {
+            ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+            ctx.fillText(txt, el.x + 6, el.y);
+          } else {
+            ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+            ctx.fillText(txt, el.x, el.y - 4);
+          }
+        });
+      });
+      ctx.restore();
+    },
+  };
+}

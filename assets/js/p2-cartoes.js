@@ -1,5 +1,5 @@
 import { sb, selectTodos } from './supabase-client.js';
-import { fmt, fmtK, fmtPct, num, mesNome, PAL, mkC, kpiHTML, renderTable, barOpts, catIcon } from './utils.js';
+import { fmt, fmtK, fmtPct, num, cent, mesNome, PAL, mkC, kpiHTML, renderTable, barOpts, catIcon, rotulosBarra } from './utils.js';
 
 // ─── Página 2 · Cartões ───────────────────────────────────────────────────────
 // Recebe a seleção de período de app.js (montarSelecao).
@@ -196,8 +196,10 @@ async function _renderAll() {
     .sort((a,b) => b[1]-a[1]);
   mkC('chCC2', {
     type: 'bar',
-    data: { labels: bcS.map(([n]) => nomeCartao(n)), datasets: [{ data: bcS.map(([,v])=>Math.round(v)), backgroundColor: PAL, borderRadius: 6, borderWidth: 0 }] },
+    data: { labels: bcS.map(([n]) => nomeCartao(n)), datasets: [{ data: bcS.map(([,v])=>cent(v)), backgroundColor: PAL, borderRadius: 6, borderWidth: 0 }] },
+    plugins: [rotulosBarra({ fonte: 11 })],
     options: {
+      layout: { padding: { right: 90 } },
       indexAxis: 'y', responsive: true, maintainAspectRatio: false,
       onClick: (e, els) => { if (els.length) { _filtroCartao = bcS[els[0].index][0]; _renderAll(); } },
       plugins: { legend:{display:false}, tooltip:{ callbacks:{ label: c=>' '+fmt(c.raw) } } },
@@ -210,12 +212,13 @@ async function _renderAll() {
     data: {
       labels: [ehAno ? `Pago ${mesNome(sel.ultimo).slice(0,3)}` : 'Pago este mês', ...projecoes.map(p=>p.label)],
       datasets: [{
-        data: [Math.round(pagosUlt), ...projecoes.map(p=>Math.round(p.valor))],
+        data: [cent(pagosUlt), ...projecoes.map(p=>cent(p.valor))],
         backgroundColor: [COR_PAGO, ...projecoes.map(()=>COR_PROJETADO)],
         borderRadius: 6, borderWidth: 0,
       }],
     },
-    options: barOpts() });
+    plugins: [rotulosBarra()],
+    options: { ...barOpts(), layout: { padding: { top: 18 } } } });
 
   _renderResponsaveis(c, cUlt, total);
   _renderRanking(c);
@@ -245,14 +248,16 @@ function _renderEvolucao(anoRows, anoPrevRows) {
     data: {
       labels: MESES_CURTOS,
       datasets: [
-        { type:'bar', label:String(ano), data: cols.map(n => temMes(n) ? Math.round(atual[kA(n)]) : null),
+        { type:'bar', label:String(ano), data: cols.map(n => temMes(n) ? cent(atual[kA(n)]) : null),
           backgroundColor: cols.map(n => kA(n) === destaque ? COR_ANO_SEL : COR_ANO), borderRadius: 6, borderWidth: 0, order: 2 },
         ...(anoPrevRows.length ? [{ type:'line', label:String(+ano - 1),
-          data: cols.map(n => prev[kP(n)] != null ? Math.round(prev[kP(n)]) : null),
+          data: cols.map(n => prev[kP(n)] != null ? cent(prev[kP(n)]) : null),
           borderColor: COR_ANO_PREV, backgroundColor: COR_ANO_PREV, borderDash:[4,4], pointRadius:3, spanGaps:true, order: 1 }] : []),
       ],
     },
-    options: barOpts({ legend: anoPrevRows.length ? { display:true, position:'bottom', labels:{ font:{size:10}, boxWidth:10 } } : { display:false } }),
+    plugins: [rotulosBarra({ fonte: 9, datasets: [0] })],
+    options: { ...barOpts({ legend: anoPrevRows.length ? { display:true, position:'bottom', labels:{ font:{size:10}, boxWidth:10 } } : { display:false } }),
+               layout: { padding: { top: 18 } } },
   });
 
   // Tabela: Fatura | Variação R$ | Variação % — meses em colunas

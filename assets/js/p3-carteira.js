@@ -1,5 +1,5 @@
 import { sb, selectTodos } from './supabase-client.js';
-import { fmt, fmtK, num, mesNome, PAL, mkC, kpiHTML, renderTable, doughnutOpts, barOpts } from './utils.js';
+import { fmt, fmtK, num, cent, mesNome, PAL, mkC, kpiHTML, renderTable, doughnutOpts, barOpts } from './utils.js';
 import { getQuotesLive, TIPOS_COTAVEIS } from './brapi.js';
 
 let _sel = null;       // seleção de período (app.js · montarSelecao)
@@ -173,7 +173,7 @@ function _pintar(el, ativos, provByTk, totalAp, aportes, proventos, status) {
   // Gráfico pizza por ativo
   mkC('chPat3', {
     type: 'doughnut',
-    data: { labels: ativos.map(r=>r.ticker), datasets: [{ data: ativos.map(r=>Math.round(r.valorLive)), backgroundColor: PAL, borderWidth: 2, borderColor: '#fff' }] },
+    data: { labels: ativos.map(r=>r.ticker), datasets: [{ data: ativos.map(r=>cent(r.valorLive)), backgroundColor: PAL, borderWidth: 2, borderColor: '#fff' }] },
     options: doughnutOpts(totalPatr),
   });
 
