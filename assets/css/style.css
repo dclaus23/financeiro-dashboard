@@ -358,3 +358,69 @@ table.demo th.c-tot { z-index: 3; }
 table.demo tr.demo-saldo .c-tot { background: var(--bbg); }
 table.demo .c-cat  { min-width: 150px; }
 table.demo .c-desc { min-width: 130px; max-width: 190px; }
+
+/* ── Cartões (p2): evolução do ano ── */
+.evo-tw { margin-top: 12px; border-top: 1px solid var(--brd); max-height: none; }
+table.evo { font-size: 11.5px; }
+table.evo th, table.evo td { padding: 6px 8px; }
+table.evo td:first-child { position: sticky; left: 0; background: var(--card); z-index: 1; min-width: 150px; }
+table.evo .vazio { color: var(--t3); opacity: .45; }
+table.evo .sel   { background: var(--bbg) !important; }
+table.evo .c-tot { background: var(--surf); font-weight: 800; border-left: 1px solid var(--brd); }
+table.evo .hint  { font-size: 9px; color: var(--t3); font-weight: 500; }
+
+/* ── Cartões (p2): responsáveis e detalhes expansíveis ── */
+.resp-legend { font-size: 10px; color: var(--t3); display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.resp-legend .badge { margin: 0; }
+.resp-resumo { padding: 10px 16px; font-size: 12px; color: var(--t2); background: var(--bbg); border-bottom: 1px solid var(--brd); }
+.exp-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px; border-radius: 5px; border: 1px solid var(--brd);
+  font-size: 12px; font-weight: 800; color: var(--navy); background: var(--card); flex-shrink: 0;
+}
+tr.det-row > td { background: var(--surf) !important; padding: 6px 12px 12px; }
+table.mini { width: 100%; font-size: 11px; background: var(--card); border-radius: 8px; overflow: hidden; border: 1px solid var(--brd); }
+table.mini th { position: static; padding: 5px 10px; font-size: 9px; }
+table.mini td { padding: 5px 10px; }
+
+.rank-wrap  { display: flex; flex-direction: column; }
+.rank-click { cursor: pointer; transition: .15s; }
+.rank-click:hover { box-shadow: 0 0 0 1px var(--navy) inset, var(--sh); }
+.rank-pos.rp-1 { background: var(--pbg); color: var(--purple); }
+.rank-pos.rp-2 { background: var(--bbg); color: var(--blue); }
+.rank-pos.rp-3 { background: var(--abg); color: var(--amber); }
+.rank-det   { margin: -4px 8px 4px 40px; padding: 8px; background: var(--surf); border-radius: 0 0 10px 10px; overflow-x: auto; }
+.rank-more  {
+  align-self: center; margin-top: 4px; background: none; border: 1px solid var(--brd); border-radius: 8px;
+  padding: 6px 14px; font-size: 11px; font-weight: 700; color: var(--navy); cursor: pointer;
+}
+.rank-more:hover { background: var(--card); }
+
+/* ── Cartões (p2): oportunidades de economia ── */
+.eco-head { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; margin-bottom: 12px; }
+.eco-stat { background: var(--card); border-radius: var(--r); padding: 14px 16px; box-shadow: var(--sh); }
+.eco-big  { font-size: 20px; font-weight: 800; color: var(--navy); letter-spacing: -.5px; }
+.eco-big span { font-size: 11px; font-weight: 600; color: var(--t3); margin-left: 2px; }
+.eco-big.neg { color: var(--red); } .eco-big.pos { color: var(--gtxt); } .eco-big.amb { color: var(--amber); }
+.eco-bar { display: flex; height: 10px; border-radius: 5px; overflow: hidden; background: var(--brd); margin: 8px 0 6px; }
+.eco-bar span { display: block; height: 100%; }
+.eco-leg { display: flex; gap: 10px; flex-wrap: wrap; }
+.eco-leg i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 4px; }
+.eco-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.eco-card { background: var(--card); border-radius: var(--r); padding: 14px 16px; box-shadow: var(--sh); border-top: 3px solid var(--brd); }
+.eco-card.eco-alerta { border-top-color: var(--red); }
+.eco-card h4 { font-size: 13px; font-weight: 800; color: var(--t1); margin-bottom: 4px; }
+.eco-desc { font-size: 11px; color: var(--t3); margin-bottom: 8px; line-height: 1.45; }
+.eco-item { display: flex; align-items: center; gap: 10px; padding: 7px 0; border-bottom: 1px solid var(--brd); }
+.eco-item:last-child { border-bottom: none; }
+.eco-ico  { font-size: 15px; width: 20px; text-align: center; }
+.eco-txt  { flex: 1; font-size: 11.5px; color: var(--t2); line-height: 1.4; }
+.eco-txt b { color: var(--t1); margin-right: 3px; }
+.eco-val  { font-size: 12.5px; font-weight: 800; white-space: nowrap; color: var(--navy); }
+.eco-val small { font-size: 9px; color: var(--t3); font-weight: 600; }
+.eco-val.neg { color: var(--red); } .eco-val.amb { color: var(--amber); }
+.eco-foot { font-size: 11px; font-weight: 700; color: var(--t2); padding-top: 8px; text-align: right; }
+.eco-notas { margin-top: 12px; background: var(--card); border-radius: var(--r); padding: 12px 16px; box-shadow: var(--sh);
+             font-size: 12px; color: var(--t2); display: flex; flex-direction: column; gap: 6px; line-height: 1.45; }
+.eco-notas:empty { display: none; }
+@media (max-width: 900px) { .eco-grid { grid-template-columns: 1fr; } }
